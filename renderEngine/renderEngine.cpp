@@ -39,30 +39,19 @@ void reshape(int w, int h)
 
 void mouse(int button, int state, int x, int y) 
 {
-   switch (button) {
+   switch (button) 
+   {
       case GLUT_LEFT_BUTTON:
         if (state == GLUT_DOWN)
-          if (g_fullView)
-            core.view->setMaster(0);
-          else
+          if (x >= 0 && x<384 && y>=0 && y<384) // top left
           {
-            if (x > 256 && x<512 && y>0 && y<256) // clicked the master
-             {
-               core.view->setMaster(0);
-             }
-             else
-             {
-               int c = 1;
-               for (int Y = 256; Y<768; Y+=256)
-               {
-                 for (int X = 0; X<768; X+=256)
-                 {
-                   if (x>X && x<(X+256) && y>Y && y<(Y+256))
-                     core.view->setMaster(c);
-                   c++;
-                 }
-               }
-             }
+            core.view->setC((double)x / 384.0, 1.0 - (double)y / 384.0);
+          }
+          else if (x >= 384 && y < 768 && y >= 0 && y<384) // top right
+          {
+            double xx = (double)(x - 384) / 384.0;
+            double yy = (double)y / 384.0;
+            core.view->setC(xx, yy);
           }
          break;
       default:
@@ -73,7 +62,7 @@ void mouse(int button, int state, int x, int y)
 int main(int argc, char** argv)
 {
    glutInit(&argc, argv);   
-   glutInitDisplayMode (GLUT_DOUBLE | GLUT_RGBA);
+   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
    glutInitWindowSize(width, height); 
    glutInitWindowPosition(100, 100);
    glutCreateWindow(argv[0]);

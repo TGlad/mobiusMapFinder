@@ -11,10 +11,11 @@ public:
   class Screen* screen; 
   void recordToScreen(Screen* screen);
   void update();
-  void setMaster(int m);
+  void setMidC(double x, double y);
+  void setC(double x, double y);
   void resetFromHead();
   void load();
   void save();
   
-  Evolver* evolvers[7];
+  Evolver* evolvers[4];
 };
