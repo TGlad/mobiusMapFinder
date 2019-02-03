@@ -14,9 +14,9 @@ public:
   class Image* bitmap;
   void randomiseMasks(const Evolver& master, float percentVariation);
 public: // private:
-  void recurseDraw(Image* bitmap, const Vector3 &point, const Vector3 &offset, int depth, int X, int Y);
-  void recurse(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0, int X, int Y, bool draw);
-  void recurseFast(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0);
+  void recurseDraw(Image* bitmap, const Vector3 &point, const Vector3 &offset, int depth, int size);
+  void recurse(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0, int size, bool draw);
+  void recurseFast(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth);
   int frame;
   void setMidC(double x, double y);
   void setC(double x, double y);
@@ -34,5 +34,35 @@ public: // private:
   void generateBuddhaSet();
   double windowRadius;
   double cx, cy;
+  static const int M = 20;
+  class BlueGreen
+  {
+  public:
+    double blues[M][M];
+    double greens[M][M];
+    BlueGreen operator+(const BlueGreen &b)
+    {
+      BlueGreen res;
+      for (int i = 0; i < M; i++)
+        for (int j = 0; j < M; j++)
+        {
+          res.blues[i][j] = blues[i][j] + b.blues[i][j];
+          res.greens[i][j] = greens[i][j] + b.greens[i][j];
+        }
+      return res;
+    }
+    BlueGreen operator*(double s)
+    {
+      BlueGreen res;
+      for (int i = 0; i < M; i++)
+        for (int j = 0; j < M; j++)
+        {
+          res.blues[i][j] = blues[i][j] * s;
+          res.greens[i][j] = greens[i][j]*s;
+        }
+      return res;
+    }
+  };
+  BlueGreen bluegreen;
 };
 

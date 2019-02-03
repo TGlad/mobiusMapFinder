@@ -7,11 +7,16 @@ const int specSize = 1000;
 static int spectrum[specSize];
 #define SIMPLE_BEND
 static int choices[16];
+static double minX = 0.0;
+static double maxX = 0.5;
+static double minY = -0.25;
+static double maxY = 0.25;
+static const int N = 8;
 
 Evolver::Evolver(int width, int id)
 {
   ID = id;
-  windowRadius = 0.2;
+  windowRadius = 1.0;
   for (int i = 0; i<specSize; i++)
   {
     float f = (logf((float)(i+8)) - logf(8.0f)) / logf((float)(specSize+7));
@@ -28,7 +33,7 @@ Evolver::Evolver(int width, int id)
   }
   bitmap = new Image(width, width);
   bitmap->clear(0);
-  scale = 2.0f;
+  scale = 2.0f; // 2.5 is also quite good
   reset();
 }
 
@@ -60,13 +65,15 @@ void Evolver::load(char* fileName, int type)
 
 void Evolver::randomiseMasks(const Evolver& master, float percentVariation)
 {
-  flips[0].set(-sqrt(0.5f),sqrt(0.5f),0);
-  flips[1].set(flips[0].y, flips[0].x, 0);
-  bends[0] = Vector3(1,0,0);
-  bends[1] = Vector3(0,1,0);
+  flips[0].set(1.0,0,0);
+  flips[1].set(1.0,0.0,0);
+  bends[0] = Vector3(1, 1, 0) / sqrt(2.0);
+  bends[1] = Vector3(-1, 1, 0) / sqrt(2.0);
+//  bends[0] = Vector3(4.0/5.0, 3.0/5.0, 0);
+//  bends[1] = Vector3(-4.0/5.0, 3.0/5.0, 0);
 
-  shifts[0].setToZero();
-  shifts[1].setToZero();
+  shifts[0] = Vector3(0, -0.15f, 0); //  // -0.15 or -0.2, maybe -0.2
+  shifts[1] = Vector3(0, -0.15f, 0); 
   frame = 0;
 }
 
@@ -92,11 +99,13 @@ Vector3 Evolver::distort(const Vector3 &point, int i)
   pos = (shifts[i] + pos - (2.0 * flips[i] * pos.dot(flips[i]))) * scale;
   return pos;
 }
-void Evolver::recurseDraw(Image* bitmap, const Vector3 &point, const Vector3 &offset, int depth, int X2, int Y2)
+void Evolver::recurseDraw(Image* bitmap, const Vector3 &point, const Vector3 &offset, int depth, int size)
 {
 //  int i = (point - mid).dot(dir) > 0.0 ? 1 : 0;
   int i = choices[16 - depth];
-  int size = bitmap->width;
+
+  int X = round(((double)size - 1.0)*(point.x + windowRadius) / (2.0*windowRadius));
+  int Y = round(((double)size - 1.0)*(point.y + windowRadius) / (2.0*windowRadius));
   if (i == 0)
   {
     avRed += point;
@@ -107,17 +116,22 @@ void Evolver::recurseDraw(Image* bitmap, const Vector3 &point, const Vector3 &of
     avGreen += point;
     numGreen++;
   }
-
-  int X = round(((double)size - 1.0)*(point.x + 1.0) / 1.6);
-  int Y = round(((double)size - 1.0)*(point.y + 1.0) / 1.6);
+  int I = (double)M * 0.5*(1.0 + point.x / windowRadius);
+  int J = (double)M * 0.5*(1.0 + point.y / windowRadius);
+  if (i == 0)
+    bluegreen.greens[max(0, min(I, M - 1))][max(0, min(J, M - 1))]++;
+  else
+    bluegreen.blues[max(0, min(I, M - 1))][max(0, min(J, M - 1))]++;
   if (X >= 0 && X < size && Y >= 0 && Y < size)
+  {
     bitmap->incrementPixel(X, Y, 0, i == 0 ? 1 : 0, i == 1 ? 1 : 0);
+  }
   Vector3 pos = distort(point, i) + offset;
   if (depth > 0)
-    recurseDraw(bitmap, pos, offset, depth - 1, X, Y);
+    recurseDraw(bitmap, pos, offset, depth - 1, size);
 }
 
-void Evolver::recurse(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0, int X, int Y, bool draw)
+void Evolver::recurse(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0, int size, bool draw)
 {
   for (int i = 0; i<2; i++)
   {
@@ -129,19 +143,30 @@ void Evolver::recurse(Image* bitmap, int &count, const Vector3 &point, const Vec
     if (depth == 0)
     {
       if (draw)
-        recurseDraw(bitmap, point0, offset, 16, X, Y);
+        recurseDraw(bitmap, point0, offset, 16, size);
       count++;
     }
     else
-      recurse(bitmap, count, pos, offset, depth - 1, point0, X, Y, draw);
+      recurse(bitmap, count, pos, offset, depth - 1, point0, size, draw);
   }
 }
 
-void Evolver::recurseFast(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth, const Vector3 &point0)
+void Evolver::recurseFast(Image* bitmap, int &count, const Vector3 &point, const Vector3 &offset, int depth)
 {
-  double size = bitmap->width - 1.0;
-  Vector3 p(size * (point.x + 1.0) / 1.6, size * (point.y + 1.0) / 1.6, 0);
-  int i = (p - smid).dot(sdir) > 0.0 ? 1 : 0;
+  double a = (double)(M - 1)*(windowRadius + point.y) / (2.0*windowRadius);
+  double b = (double)M - 1.0 - 1e-10;
+  double y = max(0.0, min(a, b));
+  int j = (int)y;
+  double blendY = y - (double)j;
+
+  a = (double)(M - 1)*(windowRadius + point.x) / (2.0*windowRadius);
+  double x = max(0.0, min(a, b));
+  int i = (int)x;
+  double blendX = x - (double)i;
+  double green = bluegreen.greens[i][j] * (1.0 - blendX)*(1.0 - blendY) + bluegreen.greens[i][j + 1] * (1.0 - blendX)*(blendY)+bluegreen.greens[i + 1][j] * (blendX)*(1.0 - blendY) + bluegreen.greens[i + 1][j + 1] * (blendX)*(blendY);
+  double blue = bluegreen.blues[i][j] * (1.0 - blendX)*(1.0 - blendY) + bluegreen.blues[i][j + 1] * (1.0 - blendX)*(blendY)+bluegreen.blues[i + 1][j] * (blendX)*(1.0 - blendY) + bluegreen.blues[i + 1][j + 1] * (blendX)*(blendY);
+
+  i = green > blue ? 0 : 1;
 
   Vector3 pos = distort(point, i) + offset;
   float dist2 = pos.magnitudeSquared();
@@ -152,18 +177,8 @@ void Evolver::recurseFast(Image* bitmap, int &count, const Vector3 &point, const
     count++;
   }
   else
-    recurseFast(bitmap, count, pos, offset, depth - 1, point0);
+    recurseFast(bitmap, count, pos, offset, depth - 1);
 }
-
-struct Pair
-{
-  Vector3 pos;
-  Vector3 dir;
-};
-static bool done = false;
-static const int N = 4;
-static Pair pairs[N][N];
-
 
 void Evolver::generateFullMap()
 {
@@ -171,12 +186,12 @@ void Evolver::generateFullMap()
   bitmap->clear();
   for (int Y = 0; Y<size; Y++)
   {
-    float y = -1.0f + 1.6f*(float)Y / (float)(size - 1);
+    float y = minY + (maxY - minY)*(float)Y / (float)(size - 1);
     for (int X = 0; X<size; X++)
     {
-      float x = -1.0f + 1.6f*(float)X / (float)(size - 1);
+      float x = minX + (maxX-minX)*(float)X / (float)(size - 1);
       int count = 0;
-      recurse(bitmap, count, Vector3(x, y, 0), Vector3(x, y, 0), 16, Vector3(x, y, 0), X, Y, false); 
+      recurse(bitmap, count, Vector3(x, y, 0), Vector3(x, y, 0), 16, Vector3(x, y, 0), size, false); 
       if (count == 0)
         bitmap->setPixel(X, Y, 0);
       else
@@ -190,77 +205,58 @@ void Evolver::setMidC(double midCx, double midCy)
   if (ID != 1)
     return;
 
-  double window = 0.4;
-  int size = bitmap->width;
+  BlueGreen bluegreens[N][N];
+  // precalculate separation data
   for (int I = 0; I < N; I++)
   {
+    cx = minX + (maxX - minX)*(double)I / (double)(N - 1);
     for (int J = 0; J < N; J++)
     {
-      avRed = Vector3(0, 0, 0);
-      numRed = 0.0;
-      avGreen = Vector3(0, 0, 0);
-      numGreen = 0.0;
-
-      for (int Y = 0; Y<size; Y++)
-      {
-        float y = -1.0f + 1.6f*(float)Y / (float)(size - 1);
-        for (int X = 0; X<size; X++)
-        {
-          float x = -1.0f + 1.6f*(float)X / (float)(size - 1);
-          // so iterate fractal for this position
-          int count = 0;
-          double xx = midCx + window * (-0.5 + (double)I / (double)(N - 1));
-          double yy = midCy + window * (-0.5 + (double)J / (double)(N - 1));
-          recurse(bitmap, count, Vector3(x, y, 0), Vector3(xx, yy, 0), 16, Vector3(x, y, 0), X, Y, true);
-        }
-      }
-      Vector3 mid = ((avRed / numRed) + (avGreen / numGreen)) / 2.0;
-      Vector3 dir = avGreen / numGreen - avRed / numRed;
-      dir.normalise();
-      pairs[I][J].pos = mid;
-      pairs[I][J].dir = dir;
+      cy = minY + (maxY - minY)*(double)J / (double)(N - 1);
+      cout << "generating set matrix " << I << ", " << J << ", cx: " << cx << ", cy: " << cy << endl;
+      generateBuddhaSet();
+      bluegreens[I][J] = bluegreen;
     }
   }
 
+  bitmap->clear();
+  int size = bitmap->width;
+  int numSet = 0;
   for (int Y = 0; Y<size; Y++)
   {
-    float y = -1.0f + 1.6f*(float)Y / (float)(size - 1);
+    float y = minY + (maxY-minY)*(float)Y / (float)(size - 1);
+    double y2 = (double)(N-1)*(double)Y / (double)size;
+    int j = y2;
+    double blendY = y2 - (double)j;
+
     for (int X = 0; X<size; X++)
     {
-      float x = -1.0f + 1.6f*(float)X / (float)(size - 1);
+      float x = minX + (maxX-minX)*(float)X / (float)(size - 1);
+
+      // interpolate the bluegreens....
+      double x2 = (double)(N-1)*(double)X / (double)size;
+      int i = x2;
+      double blendX = x2 - (double)i;
+      bluegreen = bluegreens[i][j] * (1.0 - blendX)*(1.0 - blendY) + bluegreens[i][j+1] * (1.0 - blendX)*(blendY) + bluegreens[i+1][j] * (blendX)*(1.0 - blendY) + bluegreens[i+1][j+1] * (blendX)*(blendY);
+
+      // so iterate fractal for this position
       int count = 0;
-      double x2 = (double)N*((double)X / (double)size);
-      double y2 = (double)N*((double)Y / (double)size);
-
-      int I = (int)x2;
-      int J = (int)y2;
-      double blendI = x2 - I;
-      double blendJ = x2 - J;
-      smid = pairs[I][J].pos * (1.0 - blendI)*(1.0 - blendJ) + pairs[I][J + 1].pos * (1.0 - blendI)*blendJ + pairs[I + 1][J].pos * blendI*(1.0 - blendJ) + pairs[I + 1][J + 1].pos * blendI*blendJ;
-      sdir = pairs[I][J].dir * (1.0 - blendI)*(1.0 - blendJ) + pairs[I][J + 1].dir * (1.0 - blendI)*blendJ + pairs[I + 1][J].dir * blendI*(1.0 - blendJ) + pairs[I + 1][J + 1].dir * blendI*blendJ;
-
-      double xx = midCx - 0.5*window + window * ((double)X / (double)size);
-      double yy = midCy - 0.5*window + window * ((double)Y / (double)size);
-      recurseFast(bitmap, count, Vector3(x, y, 0), Vector3(xx, yy, 0), 16, Vector3(x, y, 0)); // also -0.4, -0.3
-
-      // now we know if is inside or not, so colour the pixel
-      if (count == 0)
-        bitmap->setPixel(X, Y, 0);
-      else
+      recurseFast(bitmap, count, Vector3(x, y, 0), Vector3(x, y, 0), 16);
+      if (count > 0)
+      {
         bitmap->setPixel(X, Y, 255);
-
-      Vector3 pos(X, Y, 0);
-      if ((pos - smid).dot(sdir) > 0.0 && !bitmap->pixel(X, Y))
-        bitmap->incrementPixel(X, Y, 0, 0, 60);
+        numSet++;
+      }
     }
   }
+  cout << "number of pixels in final output: " << numSet << endl;
 }
 
 
 void Evolver::setC(double x, double y)
 {
-  cx = x*1.6 - 1.0;
-  cy = y*1.6 - 1.0;
+  cx = x*(maxX - minX) + minX;
+  cy = y*(maxY-minY) + minY;
   if (ID == 2)
     generateJuliaSet();
   else if (ID == 3)
@@ -274,14 +270,14 @@ void Evolver::generateJuliaSet()
   bitmap->clear();
   for (int Y = 0; Y<size; Y++)
   {
-//    double y = cy + windowRadius * (-1.0f + 2.0*(float)Y / (float)(size - 1));
-    double y = -1.0f + 1.6*(float)Y / (float)(size - 1);
+    double y = windowRadius * (-1.0f + 2.0*(float)Y / (float)(size - 1));
+ //   double y = minY + (maxY - minY)*(float)Y / (float)(size - 1);
     for (int X = 0; X<size; X++)
     {
-//      double x = cx + windowRadius * (-1.0f + 2.0f*(float)X / (float)(size - 1));
-      double x = -1.0f + 1.6*(float)X / (float)(size - 1);
+      double x = windowRadius * (-1.0f + 2.0f*(float)X / (float)(size - 1));
+ //     double x = minX + (maxX - minX)*(float)X / (float)(size - 1);
       int count = 0;
-      recurse(bitmap, count, Vector3(x, y, 0), Vector3(cx, cy, 0), 16, Vector3(x, y, 0), X, Y, false);
+      recurse(bitmap, count, Vector3(x, y, 0), Vector3(cx, cy, 0), 16, Vector3(x, y, 0), size, false);
       if (count == 0)
         bitmap->setPixel(X, Y, 0);
       else
@@ -290,22 +286,85 @@ void Evolver::generateJuliaSet()
   }
   cout << "finished generating Julia set" << endl;
 }
+// TODO: I need this to be smaller...
 void Evolver::generateBuddhaSet()
 {
   cout << "generating Buddha set" << endl;
-  int size = bitmap->width;
+  int size = bitmap->width / 4;
   bitmap->clear();
-  for (int Y = 0; Y<size; Y++)
+  avRed = Vector3(0, 0, 0);
+  avGreen = Vector3(0, 0, 0);
+  numRed = numGreen = 0.0;
+  for (int i = 0; i < M; i++)
   {
-//    double y = cy + windowRadius * (-1.0f + 2.0*(float)Y / (float)(size - 1));
-    double y = -1.0f + 1.6*(float)Y / (float)(size - 1);
-    for (int X = 0; X<size; X++)
+    for (int j = 0; j < M; j++)
     {
-//      double x = cx + windowRadius * (-1.0f + 2.0f*(float)X / (float)(size - 1));
-      double x = -1.0f + 1.6*(float)X / (float)(size - 1);
-      int count = 0;
-      recurse(bitmap, count, Vector3(x, y, 0), Vector3(cx, cy, 0), 16, Vector3(x, y, 0), X, Y, true);
+      bluegreen.blues[i][j] = 0;
+      bluegreen.greens[i][j] = 0;
     }
   }
+  for (int Y = 0; Y<size; Y++)
+  {
+    double y = windowRadius * (-1.0f + 2.0*(float)Y / (float)(size - 1));
+ //   double y = minY + (maxY-minY)*(float)Y / (float)(size - 1);
+    for (int X = 0; X<size; X++)
+    {
+      double x = windowRadius * (-1.0f + 2.0f*(float)X / (float)(size - 1));
+//      double x = minX + (maxX - minX)*(float)X / (float)(size - 1);
+      int count = 0;
+      recurse(bitmap, count, Vector3(x, y, 0), Vector3(cx, cy, 0), 16, Vector3(x, y, 0), size, true);
+    }
+  }
+  // disperse
+  double dispersalRate = 0.1;
+  for (int it = 0; it < M; it++)
+  {
+    BlueGreen temp = bluegreen;
+    for (int i = 0; i < M; i++)
+    {
+      for (int j = 0; j < M; j++)
+      {
+        double count = 0;
+        double averageBlue = 0;
+        double averageGreen = 0;
+        for (int x = -1; x < 2; x++)
+        {
+          for (int y = -1; y < 2; y++)
+          {
+            int X = i + x;
+            int Y = j + y;
+            if (X >= 0 && X < M && Y>=0 && Y<M)
+            {
+              averageBlue += bluegreen.blues[X][Y];
+              averageGreen += bluegreen.greens[X][Y];
+              count++;
+            }
+          }
+        }
+        temp.blues[i][j] += ((averageBlue / count) - temp.blues[i][j])*dispersalRate;
+        temp.greens[i][j] += ((averageGreen / count) - temp.greens[i][j])*dispersalRate;
+      }
+    }
+    bluegreen = temp;
+  }
+  for (int Y = 0; Y < size; Y++)
+  {
+    double y = max(0.0, min(-0.5 + ((double)Y * (double)M / (double)size), (double)M-1.0 -1e-10));
+    int j = (int)y;
+    double blendY = y - (double)j;
+    for (int X = 0; X < size; X++)
+    {
+      double x = max(0.0, min(-0.5 + ((double)X * (double)M / (double)size), (double)M-1.0 -1e-10));
+      int i = (int)x;
+      double blendX = x - (double)i;
+      double green = bluegreen.greens[i][j] * (1.0 - blendX)*(1.0 - blendY) + bluegreen.greens[i][j + 1] * (1.0 - blendX)*(blendY)+bluegreen.greens[i + 1][j] * (blendX)*(1.0 - blendY) + bluegreen.greens[i + 1][j + 1] * (blendX)*(blendY);
+      double blue = bluegreen.blues[i][j] * (1.0 - blendX)*(1.0 - blendY) + bluegreen.blues[i][j + 1] * (1.0 - blendX)*(blendY)+bluegreen.blues[i + 1][j] * (blendX)*(1.0 - blendY) + bluegreen.blues[i + 1][j + 1] * (blendX)*(blendY);
+      
+//      bitmap->incrementPixel(X, Y, 0, green / 180.0, blue / 180.0);
+      int inc = 40;
+      bitmap->incrementPixel(X, Y, 0, green > blue ? inc : 0, blue > green ? inc : 0);
+    }
+  }
+
   cout << "finished generating buddha set" << endl;
 }

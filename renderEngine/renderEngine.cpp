@@ -50,8 +50,8 @@ void mouse(int button, int state, int x, int y)
           else if (x >= 384 && y < 768 && y >= 0 && y<384) // top right
           {
             double xx = (double)(x - 384) / 384.0;
-            double yy = (double)y / 384.0;
-            core.view->setC(xx, yy);
+            double yy = 1.0 - (double)y / 384.0;
+            core.view->setMidC(xx, yy);
           }
          break;
       default:
